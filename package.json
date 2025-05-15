@@ -2,7 +2,7 @@
     "name": "locale-detector",
     "displayName": "locale detector",
     "description": "Check if there is text with the same content in the file",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "author": {
         "name": "yonneyyang"
     },
@@ -18,7 +18,6 @@
     ],
     "main": "./dist/extension.js",
     "contributes": {
-        
         "configuration": {
             "title": "Locale Detector",
             "properties": {
@@ -40,7 +39,6 @@
                 }
             }
         }
-
     },
     "publisher": "yonneyyang",
     "scripts": {
