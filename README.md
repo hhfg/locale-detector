@@ -9,8 +9,8 @@
 
 # 拓展配置
 
-* 在.vscode/settings.json中增加配置，更改支持检测的语言文件
+* 在.vscode/settings.json中增加配置，更改支持检测的语言文件及是否跨文件检测
 * {
-*   "local-detector.enable":false,
-*    "local-detector.languages":['en-US','zh-CN']
+*   "local-detector.crossFile":false,
+*    "local-detector.languages":["en-US","zh-CN"]
 * }

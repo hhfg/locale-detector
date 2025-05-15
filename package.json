@@ -22,10 +22,10 @@
         "configuration": {
             "title": "Locale Detector",
             "properties": {
-                "local-detector.enable": {
+                "local-detector.crossFile": {
                     "type": "boolean",
-                    "default": true,
-                    "description": "Enable locale detector"
+                    "default": false,
+                    "description": "是否跨文件检测"
                 },
                 "local-detector.languages": {
                     "type": "array",
@@ -36,7 +36,7 @@
                         "en",
                         "en-US"
                     ],
-                    "description": "Language list for locale detector"
+                    "description": "支持检测的语言"
                 }
             }
         }
