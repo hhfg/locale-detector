@@ -96,11 +96,13 @@ const detectorSameFileName = async (
         detectorContent(fileDocument, value, relatedInfo, positionLine, false);
     }
 };
+
 export function activate(context: vscode.ExtensionContext) {
     //创建诊断集合
     const diagCollection = vscode.languages.createDiagnosticCollection("currentLineWarning");
     context.subscriptions.push(diagCollection);
     let relatedInfo: vscode.DiagnosticRelatedInformation[] = [];
+    let selectionChangeDisposable: vscode.Disposable | undefined;
     //获取当前打开的文件，判断是否要检测的文件
     context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor((editor) => {
@@ -111,12 +113,16 @@ export function activate(context: vscode.ExtensionContext) {
             const config = vscode.workspace.getConfiguration("local-detector", uri);
             const crossFile = config.get<boolean>("crossFile", false);
             const language = config.get<string[]>("languages");
+            if (selectionChangeDisposable) {
+                selectionChangeDisposable.dispose();
+                selectionChangeDisposable = undefined;
+            }
             if (language?.includes(String(name))) {
                 //当前光标选择更改的事件监听
-                let selectionChangeDisposable: vscode.Disposable | undefined;
+                diagCollection.clear();
+                
                 selectionChangeDisposable = vscode.window.onDidChangeTextEditorSelection(async (event) => {
                     //清除之前的警告
-                    diagCollection.clear();
                     relatedInfo = [];
                     const editor = event.textEditor;
                     if (event.textEditor !== editor) return;
@@ -147,6 +153,8 @@ export function activate(context: vscode.ExtensionContext) {
                         diagCollection.set(document.uri, [diagnostic]);
                     }
                 });
+            }else{
+                return;
             }
         })
     );
