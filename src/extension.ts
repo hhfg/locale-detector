@@ -118,11 +118,10 @@ export function activate(context: vscode.ExtensionContext) {
                 selectionChangeDisposable = undefined;
             }
             if (language?.includes(String(name))) {
-                //当前光标选择更改的事件监听
-                diagCollection.clear();
                 
                 selectionChangeDisposable = vscode.window.onDidChangeTextEditorSelection(async (event) => {
                     //清除之前的警告
+                    diagCollection.clear();
                     relatedInfo = [];
                     const editor = event.textEditor;
                     if (event.textEditor !== editor) return;
