@@ -2,7 +2,7 @@
     "name": "locale-detector",
     "displayName": "locale detector",
     "description": "Check if there is text with the same content in the file",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "author": {
         "name": "yonneyyang"
     },
@@ -49,7 +49,6 @@
                 "title": "Locale Detector: Rename"
             }
         ]
-
     },
     "publisher": "yonneyyang",
     "scripts": {
