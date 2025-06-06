@@ -288,12 +288,11 @@ export function activate(context: vscode.ExtensionContext) {
             //删除诊断
             deleteErrorKeyDiagnostic(document, range, source);
         }),
-        //重命名重复的key，加上_new后缀
+        //仅删除key
         vscode.commands.registerCommand("local-detector.deleteDuplicateKey", async (document: vscode.TextDocument, range: vscode.Range, source: string) => {
             const edit = new vscode.WorkspaceEdit();
             const text = document.getText(range);
-            const newText=text.replace(source, ""); //去掉逗号
-            console.log("newText", newText);
+            const newText=text.replace(source, "");
             edit.replace(document.uri, range, newText);
             await vscode.workspace.applyEdit(edit);
             //删除诊断
