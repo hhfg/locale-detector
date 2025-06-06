@@ -266,7 +266,7 @@ export function activate(context: vscode.ExtensionContext) {
             }
         }),
         //删除重复的key，整行删除
-        vscode.commands.registerCommand("local-detector.deleteDuplicateKey", async (document: vscode.TextDocument, range: vscode.Range, source: string) => {
+        vscode.commands.registerCommand("local-detector.deleteEntireLine", async (document: vscode.TextDocument, range: vscode.Range, source: string) => {
             const edit = new vscode.WorkspaceEdit();
             // edit.delete(document.uri, range);
             // 删除整行，包括换行符
@@ -283,6 +283,17 @@ export function activate(context: vscode.ExtensionContext) {
             const oldKey = getCurrentKey(document, range) || "";
             const newKey = oldKey + "_new";
             const newText = text.replace(oldKey, newKey);
+            edit.replace(document.uri, range, newText);
+            await vscode.workspace.applyEdit(edit);
+            //删除诊断
+            deleteErrorKeyDiagnostic(document, range, source);
+        }),
+        //重命名重复的key，加上_new后缀
+        vscode.commands.registerCommand("local-detector.deleteDuplicateKey", async (document: vscode.TextDocument, range: vscode.Range, source: string) => {
+            const edit = new vscode.WorkspaceEdit();
+            const text = document.getText(range);
+            const newText=text.replace(source, ""); //去掉逗号
+            console.log("newText", newText);
             edit.replace(document.uri, range, newText);
             await vscode.workspace.applyEdit(edit);
             //删除诊断

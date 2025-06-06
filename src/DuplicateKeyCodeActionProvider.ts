@@ -12,10 +12,10 @@ class DuplicateKeyCodeActionProvider implements vscode.CodeActionProvider {
         }
         const codeActions: vscode.CodeAction[] = [];
         for (const diagnostic of duplicateKeyDiagnostic) {
-            const codeActionMove = new vscode.CodeAction("删除此key", vscode.CodeActionKind.RefactorMove);
+            const codeActionMove = new vscode.CodeAction("删除整行文案", vscode.CodeActionKind.RefactorMove);
             codeActionMove.command = {
-                title: "删除此key",
-                command: "local-detector.deleteDuplicateKey",
+                title: "删除整行文案",
+                command: "local-detector.deleteEntireLine",
                 arguments: [document, diagnostic.range],
             };
             codeActions.push(codeActionMove);
@@ -24,9 +24,17 @@ class DuplicateKeyCodeActionProvider implements vscode.CodeActionProvider {
             codeActionQuickFix.command = {
                 title: "快速修复此key",
                 command: "local-detector.renameDuplicateKey",
-                arguments: [document, diagnostic.range,diagnostic.source ],
+                arguments: [document, diagnostic.range, diagnostic.source],
             };
             codeActions.push(codeActionQuickFix);
+
+            const codeActionDeleteKey = new vscode.CodeAction("删除此key", vscode.CodeActionKind.RefactorMove);
+            codeActionDeleteKey.command = {
+                title: "删除此key",
+                command: "local-detector.deleteDuplicateKey",
+                arguments: [document, diagnostic.range, diagnostic.source],
+            };
+            codeActions.push(codeActionDeleteKey);
         }
         return codeActions;
     }

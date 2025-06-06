@@ -47,6 +47,10 @@
             {
                 "command": "local-detector.renameDuplicateKey",
                 "title": "Locale Detector: Rename"
+            },
+            {
+                "command": "local-detector.deleteEntireLine",
+                "title": "Locale Detector: DeleteEntireLine"
             }
         ]
     },
