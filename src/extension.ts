@@ -268,7 +268,10 @@ export function activate(context: vscode.ExtensionContext) {
         //删除重复的key，整行删除
         vscode.commands.registerCommand("local-detector.deleteDuplicateKey", async (document: vscode.TextDocument, range: vscode.Range, source: string) => {
             const edit = new vscode.WorkspaceEdit();
-            edit.delete(document.uri, range);
+            // edit.delete(document.uri, range);
+            // 删除整行，包括换行符
+            const lineRange = document.lineAt(range.start.line).rangeIncludingLineBreak;
+            edit.delete(document.uri, lineRange);
             await vscode.workspace.applyEdit(edit);
             //删除诊断
             deleteErrorKeyDiagnostic(document, range, source);
