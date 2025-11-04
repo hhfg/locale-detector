@@ -79,10 +79,14 @@ const detectorSameFileName = async (
     const sameNameFiles = await vscode.workspace.findFiles(`**/${fileName}`, "**/node_modules/**");
     for (const file of sameNameFiles) {
         const isCurrentFile = file.fsPath === filePath;
-        if ((await isIgnored(file.fsPath)) || isCurrentFile) continue;
+        if ((await isIgnored(file.fsPath)) || isCurrentFile) {
+            continue;
+        }
         //获取缓存的文件内容
         const fileDocument = await getCachedDocument(file);
-        if (!fileDocument) continue;
+        if (!fileDocument) {
+            continue;
+        }
         detectorContent(fileDocument, value, relatedInfo, positionLine, false);
     }
 };
@@ -91,21 +95,29 @@ const handleSelectionChange = async (event: any, crossFile: boolean, fileName: s
     diagCollection.clear();
     relatedInfo = [];
     const editor = event.textEditor;
-    if (event.textEditor !== editor) return;
+    if (event.textEditor !== editor) {
+        return;
+    }
 
     const document = editor.document;
     const positionLine = editor.selection.active.line;
     const originLineText = document.lineAt(positionLine).text.replace(/,/g, ""); //当前行内容，需要去掉逗号
 
-    if (!regex1.test(originLineText)) return; //不符合正则表达式的行
+    if (!regex1.test(originLineText)) {
+        return;
+    } //不符合正则表达式的行
 
     const matchResult = regex1.exec(originLineText);
-    if (!matchResult) return;
+    if (!matchResult) {
+        return;
+    }
 
     const value = matchResult[2]; //文案的内容
     detectorContent(document, value, relatedInfo, positionLine, true);
     //跨文件检测
-    if (crossFile) await detectorSameFileName(fileName, filePath, value, positionLine, relatedInfo);
+    if (crossFile) {
+        await detectorSameFileName(fileName, filePath, value, positionLine, relatedInfo);
+    }
 
     if (relatedInfo.length > 0) {
         // 取当前行的完整 Range
@@ -118,7 +130,9 @@ const handleSelectionChange = async (event: any, crossFile: boolean, fileName: s
 
 const handleCloseTextDocument = async (document: vscode.TextDocument) => {
     const filePath = document.fileName;
-    if (filePath.endsWith(".git")) return;
+    if (filePath.endsWith(".git")) {
+        return;
+    }
     const name = path.parse(filePath).name;
     const uri = document.uri;
     const currentOpenFile = getVisibleDocument();
@@ -134,6 +148,41 @@ interface KeyLocation {
     line: number; //行号
 }
 
+const analysisProperty = (property: (acorn.Property | acorn.SpreadElement)[], document: vscode.TextDocument) => {
+    const keyMap = new Map<string, KeyLocation[]>();
+    property.forEach((item) => {
+        if (item.type === "Property") {
+            const key = item.key;
+            const start = item.loc?.start;
+            const end = item.loc?.end;
+            if (!start || !end) {
+                return;
+            } //如果没有位置信息，跳过
+            const line = item.loc?.start.line as number; //获取行号
+            if (key.type === "Literal") {
+                const range = new vscode.Range(start.line - 1, start.column, start.line - 1, end.column + 1);
+                if (keyMap.has(key.value as string)) {
+                    keyMap.get(key.value as string)?.push({ range, line });
+                } else {
+                    keyMap.set(key.value as string, [{ range, line }]);
+                }
+            }
+        }
+    });
+    const diagCollection = [];
+    for (const [key, locations] of keyMap) {
+        if (locations.length > 1) {
+            for (const location of locations) {
+                const diagnostic = new vscode.Diagnostic(location.range, `⚠️ 重复Key，请更改`, vscode.DiagnosticSeverity.Error);
+                diagnostic.code = "duplicate Key";
+                diagnostic.source = key;
+                diagCollection.push(diagnostic);
+            }
+        }
+    }
+    errorKeyDiagnostic.set(document.uri, diagCollection);
+};
+
 /**
  * @description 分析文档，检测重复的key
  * @param document
@@ -144,50 +193,28 @@ const analysisDocument = async (document: vscode.TextDocument) => {
     const esTree = acorn.parse(fileDocument?.getText() || "", {
         ecmaVersion: "latest",
         locations: true,
+        sourceType: "module",
     });
     const node = esTree.body[0];
     if (node.type === "ExpressionStatement" && node.expression?.type === "AssignmentExpression") {
         const { left, right } = node.expression;
-        if (left.type === "MemberExpression" && left.computed === false && node.expression.operator === "=" && right.type === "ObjectExpression") {
+        if (left.type === "MemberExpression" && node.expression.operator === "=" && right.type === "ObjectExpression") {
             //左边节点对应的是静态（a.b）成员表达式，属性是 Identifier。
             const property = right.properties; //获取右边对象的属性
-            const keyMap = new Map<string, KeyLocation[]>();
-            property.forEach((item) => {
-                if (item.type === "Property") {
-                    const key = item.key;
-                    const start = item.loc?.start;
-                    const end = item.loc?.end;
-                    if (!start || !end) return; //如果没有位置信息，跳过
-                    const line = item.loc?.start.line as number; //获取行号
-                    if (key.type === "Literal") {
-                        const range = new vscode.Range(start.line - 1, start.column, start.line - 1, end.column + 1);
-                        if (keyMap.has(key.value as string)) {
-                            keyMap.get(key.value as string)?.push({ range, line });
-                        } else {
-                            keyMap.set(key.value as string, [{ range, line }]);
-                        }
-                    }
-                }
-            });
-            const diagCollection = [];
-            for (const [key, locations] of keyMap) {
-                if (locations.length > 1) {
-                    for (const location of locations) {
-                        const diagnostic = new vscode.Diagnostic(location.range, `⚠️ 重复Key，请更改`, vscode.DiagnosticSeverity.Error);
-                        diagnostic.code = "duplicate Key";
-                        diagnostic.source = key;
-                        diagCollection.push(diagnostic);
-                    }
-                }
-            }
-            errorKeyDiagnostic.set(document.uri, diagCollection);
+
+            analysisProperty(property, document);
         }
+    } else if (node.type === "ExportDefaultDeclaration" && node.declaration.type === "ObjectExpression") {
+        const property = node.declaration.properties;
+        analysisProperty(property, document);
     }
 };
 
 const handleOpenTextDocument = async (document: vscode.TextDocument) => {
     const filePath = document.fileName;
-    if (filePath.endsWith(".git")) return;
+    if (filePath.endsWith(".git")) {
+        return;
+    }
     const name = path.parse(filePath).name;
     const uri = document.uri;
     if (name && getIsSurportLanguageFile(name, uri)) {
@@ -206,7 +233,9 @@ const deleteErrorKeyDiagnostic = (document: vscode.TextDocument, range: vscode.R
 const getCurrentKey = (document: vscode.TextDocument, range: vscode.Range) => {
     const text = document.getText(range);
     const matchResult = regex1.exec(text);
-    if (!matchResult) return;
+    if (!matchResult) {
+        return;
+    }
 
     const key = matchResult[1]; //文案的内容
     return key || "";
@@ -216,7 +245,11 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(errorKeyDiagnostic);
     context.subscriptions.push(
         vscode.languages.registerCodeActionsProvider(
-            { scheme: "file", language: "javascript" }, // 或你的目标语言
+            [
+                { scheme: "file", language: "javascript" },
+                { scheme: "file", language: "typescript" },
+            ],
+            // 或你的目标语言
             duplicateKeyCodeActionProvider,
             { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix, vscode.CodeActionKind.RefactorMove, vscode.CodeActionKind.RefactorRewrite] }
         )
@@ -232,7 +265,9 @@ export function activate(context: vscode.ExtensionContext) {
             const filePath = editor?.document.fileName;
             const fileName = filePath ? path.basename(filePath) : undefined;
             const name = filePath && path.parse(filePath).name;
-            if (filePath && filePath.endsWith(".git")) return;
+            if (filePath && filePath.endsWith(".git")) {
+                return;
+            }
             const uri = editor?.document.uri;
             const { crossFile } = getConfiguration(uri);
             if (selectionChangeDisposable) {
@@ -292,7 +327,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand("local-detector.deleteDuplicateKey", async (document: vscode.TextDocument, range: vscode.Range, source: string) => {
             const edit = new vscode.WorkspaceEdit();
             const text = document.getText(range);
-            const newText=text.replace(source, "");
+            const newText = text.replace(source, "");
             edit.replace(document.uri, range, newText);
             await vscode.workspace.applyEdit(edit);
             //删除诊断
