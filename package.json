@@ -51,6 +51,17 @@
             {
                 "command": "local-detector.deleteEntireLine",
                 "title": "Locale Detector: DeleteEntireLine"
+            },
+            {
+                "command": "local-detector.queryI18nText",
+                "title": "Locale Detector: Query I18n Text"
+            }
+        ],
+        "keybindings": [
+            {
+                "command": "local-detector.queryI18nText",
+                "key": "ctrl+alt+s",
+                "when": "editorTextFocus"
             }
         ]
     },

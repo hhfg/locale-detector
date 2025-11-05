@@ -201,12 +201,14 @@ const analysisDocument = async (document: vscode.TextDocument) => {
         if (left.type === "MemberExpression" && node.expression.operator === "=" && right.type === "ObjectExpression") {
             //左边节点对应的是静态（a.b）成员表达式，属性是 Identifier。
             const property = right.properties; //获取右边对象的属性
-
-            analysisProperty(property, document);
+            return property;
         }
-    } else if (node.type === "ExportDefaultDeclaration" && node.declaration.type === "ObjectExpression") {
-        const property = node.declaration.properties;
-        analysisProperty(property, document);
+    } else {
+        const findNode = esTree.body.find((node) => node.type === "ExportDefaultDeclaration");
+        if (findNode && findNode.type === "ExportDefaultDeclaration" && findNode.declaration.type === "ObjectExpression") {
+            const property = findNode.declaration.properties;
+            return property;
+        }
     }
 };
 
@@ -219,7 +221,10 @@ const handleOpenTextDocument = async (document: vscode.TextDocument) => {
     const uri = document.uri;
     if (name && getIsSurportLanguageFile(name, uri)) {
         //如果是目标语言文件，获取缓存的内容
-        analysisDocument(document);
+        const property = await analysisDocument(document);
+        if (property) {
+            analysisProperty(property, document);
+        }
     }
 };
 
@@ -240,6 +245,7 @@ const getCurrentKey = (document: vscode.TextDocument, range: vscode.Range) => {
     const key = matchResult[1]; //文案的内容
     return key || "";
 };
+
 export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(diagCollection);
     context.subscriptions.push(errorKeyDiagnostic);
@@ -332,6 +338,67 @@ export function activate(context: vscode.ExtensionContext) {
             await vscode.workspace.applyEdit(edit);
             //删除诊断
             deleteErrorKeyDiagnostic(document, range, source);
+        }),
+        vscode.commands.registerCommand("local-detector.queryI18nText", async () => {
+            const keyword = await vscode.window.showInputBox({ prompt: "请输入要查询的文案内容", placeHolder: "eg: Monday" });
+            if (!keyword) {
+                return;
+            }
+            const jsFiles = await vscode.workspace.findFiles("**/public/templates/en.js");
+            const tsFiles = await vscode.workspace.findFiles("**/locales/en-US.ts");
+            const files = [...jsFiles, ...tsFiles];
+            let matches: { key: string; value: string; file: string }[] = [];
+            for (const file of files) {
+                const document = await getCachedDocument(file);
+                if (!document) {
+                    continue;
+                }
+                const property = await analysisDocument(document);
+                if (!property) {
+                    continue;
+                }
+                property.forEach((item) => {
+                    if (item.type === "Property") {
+                        const key = item.key;
+                        const content = item.value;
+                        if (key.type === "Literal" && content.type === "Literal") {
+                            const keyName = key.value as string;
+                            const value = content.value as string;
+                            if (typeof value === "string" && value.toLocaleLowerCase().includes(keyword.toLocaleLowerCase())) {
+                                matches.push({ key: keyName, value: value, file: path.basename(file.fsPath) });
+                            }
+                        }
+                    }
+                });
+            }
+
+            if (matches.length === 0) {
+                vscode.window.showInformationMessage("未找到匹配的文案");
+                return;
+            }
+            // 3️⃣ 弹出选择框
+            const pick = await vscode.window.showQuickPick(
+                matches.map((m) => ({
+                    label: `${m.key} (${m.file})`,
+                    description: ``,
+                    detail: m.value,
+                })),
+                { placeHolder: "选择要插入的文案 key" }
+            );
+            if (!pick) {
+                return;
+            }
+            const activeEditor = vscode.window.activeTextEditor;
+            if (!activeEditor) {
+                return;
+            }
+            // 4️⃣ 插入到当前光标位置
+            activeEditor.edit((editBuilder) => {
+                const selections = activeEditor.selections;
+                selections.forEach((selection) => {
+                    editBuilder.replace(selection, pick?.label.split(" ")[0] || "");
+                });
+            });
         })
     );
 }
