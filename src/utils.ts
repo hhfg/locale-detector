@@ -11,7 +11,9 @@ import { CONFIG_CROSS_FILE, CONFIG_LANGUAGE, CONFIG_NAME } from "./constant";
  */
 export const getGitignorePatterns = async () => {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (!workspaceFolder) return [];
+    if (!workspaceFolder) {
+        return [];
+    }
 
     const gitignorePath = path.join(workspaceFolder.uri.fsPath, ".gitignore");
 
@@ -34,7 +36,9 @@ export const getGitignorePatterns = async () => {
  */
 export const isIgnored = async (absoluteFilePath: string) => {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-    if (!workspaceFolder) return;
+    if (!workspaceFolder) {
+        return;
+    }
     const patterns = await getGitignorePatterns();
 
     const ig = ignore().add(patterns);
@@ -83,4 +87,35 @@ export const getVisibleDocument = () => {
         }
     });
     return openFileArr;
+};
+
+/**
+ * @description 删除指定错误诊断
+ * @param document
+ * @param range
+ * @param currentKey
+ * @param errorKeyDiagnostic
+ */
+export const deleteErrorKeyDiagnostic = (
+    document: vscode.TextDocument,
+    range: vscode.Range,
+    currentKey: string,
+    errorKeyDiagnostic: vscode.DiagnosticCollection
+) => {
+    const newDiagnostic = errorKeyDiagnostic.get(document.uri)?.filter((diagnostic) => {
+        return !(diagnostic.range.isEqual(range) || diagnostic.source === currentKey);
+    });
+    errorKeyDiagnostic.set(document.uri, newDiagnostic || []);
+};
+
+export const getCurrentKey = (document: vscode.TextDocument, range: vscode.Range) => {
+    const regex1 = /["'](.*?)["']\s*:\s*["'](.*?)["']/;
+    const text = document.getText(range);
+    const matchResult = regex1.exec(text);
+    if (!matchResult) {
+        return;
+    }
+
+    const key = matchResult[1]; //文案的内容
+    return key || "";
 };

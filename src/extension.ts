@@ -6,10 +6,9 @@ import { documentCache } from "./DocumentCache";
 import { getConfiguration, getIsSurportLanguageFile, getVisibleDocument, isIgnored } from "./utils";
 import * as acorn from "acorn";
 import { duplicateKeyCodeActionProvider } from "./DuplicateKeyCodeActionProvider";
+import { registerCommands } from "./commands";
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
-
-const regex1 = /["'](.*?)["']\s*:\s*["'](.*?)["']/;
 
 //诊断的信息存储
 let relatedInfo: vscode.DiagnosticRelatedInformation[] = [];
@@ -32,7 +31,7 @@ const getCachedDocument = async (filePath: vscode.Uri) => {
     }
 };
 
-const detectorContent = (
+const detectorContent = async (
     fileDocument: vscode.TextDocument,
     value: string,
     relatedInfo: vscode.DiagnosticRelatedInformation[],
@@ -40,21 +39,23 @@ const detectorContent = (
     isCurrentFile: boolean
 ) => {
     const textMap = new Map<vscode.Location, string>();
-    for (let lineNum = 0; lineNum < fileDocument.lineCount; lineNum++) {
-        const lineText = fileDocument.lineAt(lineNum).text.replace(/,/g, "");
-        const lineMatch = lineText.match(regex1);
-
-        if (lineMatch) {
-            const lineValue = lineMatch[2];
-
-            if (lineValue && value && lineValue.toLowerCase() === value?.toLowerCase() && (isCurrentFile ? positionLine !== lineNum : true)) {
-                //如果是当前文件，过滤掉当前行
-                const range = new vscode.Range(lineNum, 0, lineNum, lineText.length);
-                const location = new vscode.Location(fileDocument.uri, range);
-                textMap.set(location, lineText);
+    const property = await analysisDocument(fileDocument);
+    property?.forEach((item, index) => {
+        if (item.type === "Property") {
+            const key = item.key;
+            const content = item.value;
+            if (key.type === "Literal" && content.type === "Literal") {
+                const lineValue = content.value as string;
+                const lineNum = item.loc?.start.line ? item.loc.start.line - 1 : -1;
+                if (lineValue && value && lineValue.toLowerCase() === value?.toLowerCase() && (isCurrentFile ? positionLine !== lineNum : true)) {
+                    //如果是当前文件，过滤掉当前行
+                    const range = new vscode.Range(lineNum, 0, lineNum, fileDocument.lineAt(lineNum).text.length);
+                    const location = new vscode.Location(fileDocument.uri, range);
+                    textMap.set(location, fileDocument.lineAt(lineNum).text);
+                }
             }
         }
-    }
+    });
     for (const [location, lineText] of textMap) {
         relatedInfo.push(new vscode.DiagnosticRelatedInformation(location, `${lineText}`));
     }
@@ -94,37 +95,39 @@ const handleSelectionChange = async (event: any, crossFile: boolean, fileName: s
     //清除之前的警告
     diagCollection.clear();
     relatedInfo = [];
-    const editor = event.textEditor;
-    if (event.textEditor !== editor) {
+
+    if (!event.textEditor) {
         return;
     }
 
-    const document = editor.document;
-    const positionLine = editor.selection.active.line;
-    const originLineText = document.lineAt(positionLine).text.replace(/,/g, ""); //当前行内容，需要去掉逗号
-
-    if (!regex1.test(originLineText)) {
-        return;
-    } //不符合正则表达式的行
-
-    const matchResult = regex1.exec(originLineText);
-    if (!matchResult) {
-        return;
+    const document = event.textEditor.document;
+    const positionLine = event.textEditor.selection.active.line;
+    let originLineText = document.lineAt(positionLine).text; //当前行内容
+    if (originLineText.endsWith(",")) {
+        originLineText = originLineText.slice(0, -1);
     }
 
-    const value = matchResult[2]; //文案的内容
-    detectorContent(document, value, relatedInfo, positionLine, true);
-    //跨文件检测
-    if (crossFile) {
-        await detectorSameFileName(fileName, filePath, value, positionLine, relatedInfo);
-    }
+    try {
+        //使用acorn解析当前行内容
+        const ast1 = acorn.parseExpressionAt(`{${originLineText}}`, 0, { ecmaVersion: "latest" });
+        const value = (ast1 as acorn.Node & { properties: acorn.Property[] }).properties[0].value;
+        if (value.type === "Literal" && typeof value.value === "string") {
+            await detectorContent(document, value?.value, relatedInfo, positionLine, true);
+            //跨文件检测
+            if (crossFile) {
+                await detectorSameFileName(fileName, filePath, value?.value, positionLine, relatedInfo);
+            }
 
-    if (relatedInfo.length > 0) {
-        // 取当前行的完整 Range
-        const lineRange = document.lineAt(positionLine).range;
-        const diagnostic = new vscode.Diagnostic(lineRange, "⚠️已存在相同内容的文案，对应是：\n", vscode.DiagnosticSeverity.Warning);
-        diagnostic.relatedInformation = relatedInfo;
-        diagCollection.set(document.uri, [diagnostic]);
+            if (relatedInfo.length > 0) {
+                // 取当前行的完整 Range
+                const lineRange = document.lineAt(positionLine).range;
+                const diagnostic = new vscode.Diagnostic(lineRange, "⚠️已存在相同内容的文案，对应是：\n", vscode.DiagnosticSeverity.Warning);
+                diagnostic.relatedInformation = relatedInfo;
+                diagCollection.set(document.uri, [diagnostic]);
+            }
+        }
+    } catch (error) {
+        return;
     }
 };
 
@@ -228,24 +231,6 @@ const handleOpenTextDocument = async (document: vscode.TextDocument) => {
     }
 };
 
-//删除错误key的诊断
-const deleteErrorKeyDiagnostic = (document: vscode.TextDocument, range: vscode.Range, currentKey: string) => {
-    const newDiagnostic = errorKeyDiagnostic.get(document.uri)?.filter((diagnostic) => {
-        return !(diagnostic.range.isEqual(range) || diagnostic.source === currentKey);
-    });
-    errorKeyDiagnostic.set(document.uri, newDiagnostic || []);
-};
-const getCurrentKey = (document: vscode.TextDocument, range: vscode.Range) => {
-    const text = document.getText(range);
-    const matchResult = regex1.exec(text);
-    if (!matchResult) {
-        return;
-    }
-
-    const key = matchResult[1]; //文案的内容
-    return key || "";
-};
-
 export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(diagCollection);
     context.subscriptions.push(errorKeyDiagnostic);
@@ -303,104 +288,12 @@ export function activate(context: vscode.ExtensionContext) {
             const uri = document.uri;
             if (name && getIsSurportLanguageFile(name, uri)) {
                 //如果是目标语言文件，获取缓存的内容
-                analysisDocument(document);
-            }
-        }),
-        //删除重复的key，整行删除
-        vscode.commands.registerCommand("local-detector.deleteEntireLine", async (document: vscode.TextDocument, range: vscode.Range, source: string) => {
-            const edit = new vscode.WorkspaceEdit();
-            // edit.delete(document.uri, range);
-            // 删除整行，包括换行符
-            const lineRange = document.lineAt(range.start.line).rangeIncludingLineBreak;
-            edit.delete(document.uri, lineRange);
-            await vscode.workspace.applyEdit(edit);
-            //删除诊断
-            deleteErrorKeyDiagnostic(document, range, source);
-        }),
-        //重命名重复的key，加上_new后缀
-        vscode.commands.registerCommand("local-detector.renameDuplicateKey", async (document: vscode.TextDocument, range: vscode.Range, source: string) => {
-            const edit = new vscode.WorkspaceEdit();
-            const text = document.getText(range);
-            const oldKey = getCurrentKey(document, range) || "";
-            const newKey = oldKey + "_new";
-            const newText = text.replace(oldKey, newKey);
-            edit.replace(document.uri, range, newText);
-            await vscode.workspace.applyEdit(edit);
-            //删除诊断
-            deleteErrorKeyDiagnostic(document, range, source);
-        }),
-        //仅删除key
-        vscode.commands.registerCommand("local-detector.deleteDuplicateKey", async (document: vscode.TextDocument, range: vscode.Range, source: string) => {
-            const edit = new vscode.WorkspaceEdit();
-            const text = document.getText(range);
-            const newText = text.replace(source, "");
-            edit.replace(document.uri, range, newText);
-            await vscode.workspace.applyEdit(edit);
-            //删除诊断
-            deleteErrorKeyDiagnostic(document, range, source);
-        }),
-        vscode.commands.registerCommand("local-detector.queryI18nText", async () => {
-            const keyword = await vscode.window.showInputBox({ prompt: "请输入要查询的文案内容", placeHolder: "eg: Monday" });
-            if (!keyword) {
-                return;
-            }
-            const jsFiles = await vscode.workspace.findFiles("**/public/templates/en.js");
-            const tsFiles = await vscode.workspace.findFiles("**/locales/en-US.ts");
-            const files = [...jsFiles, ...tsFiles];
-            let matches: { key: string; value: string; file: string }[] = [];
-            for (const file of files) {
-                const document = await getCachedDocument(file);
-                if (!document) {
-                    continue;
-                }
                 const property = await analysisDocument(document);
-                if (!property) {
-                    continue;
-                }
-                property.forEach((item) => {
-                    if (item.type === "Property") {
-                        const key = item.key;
-                        const content = item.value;
-                        if (key.type === "Literal" && content.type === "Literal") {
-                            const keyName = key.value as string;
-                            const value = content.value as string;
-                            if (typeof value === "string" && value.toLocaleLowerCase().includes(keyword.toLocaleLowerCase())) {
-                                matches.push({ key: keyName, value: value, file: path.basename(file.fsPath) });
-                            }
-                        }
-                    }
-                });
+                analysisProperty(property || [], document);
             }
-
-            if (matches.length === 0) {
-                vscode.window.showInformationMessage("未找到匹配的文案");
-                return;
-            }
-            // 3️⃣ 弹出选择框
-            const pick = await vscode.window.showQuickPick(
-                matches.map((m) => ({
-                    label: `${m.key} (${m.file})`,
-                    description: ``,
-                    detail: m.value,
-                })),
-                { placeHolder: "选择要插入的文案 key" }
-            );
-            if (!pick) {
-                return;
-            }
-            const activeEditor = vscode.window.activeTextEditor;
-            if (!activeEditor) {
-                return;
-            }
-            // 4️⃣ 插入到当前光标位置
-            activeEditor.edit((editBuilder) => {
-                const selections = activeEditor.selections;
-                selections.forEach((selection) => {
-                    editBuilder.replace(selection, pick?.label.split(" ")[0] || "");
-                });
-            });
         })
     );
+    registerCommands(context, errorKeyDiagnostic, getCachedDocument, analysisDocument);
 }
 
 // This method is called when your extension is deactivated
