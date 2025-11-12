@@ -61,6 +61,7 @@
             {
                 "command": "local-detector.queryI18nText",
                 "key": "ctrl+alt+s",
+                "mac": "cmd+alt+s",
                 "when": "editorTextFocus"
             }
         ]
